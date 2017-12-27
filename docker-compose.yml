@@ -1,0 +1,11 @@
+version: "3"
+services:
+  db:
+    build:
+      context: db/
+      dockerfile: Dockerfile
+    ports:
+      - "5432:5432"
+    environment:
+      DBUSER: ${DBUSER}
+      DBNAME: ${DBNAME}
