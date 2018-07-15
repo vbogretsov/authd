@@ -1,6 +1,6 @@
 # authd
 
-OAuth 2.0 compliant authentication service
+Simple authentication service with email confirmation and password reset
 
 ## API
 
@@ -8,121 +8,200 @@ OAuth 2.0 compliant authentication service
 
 #### Request
 
-POST /v1/requests/accounts HTTP/1.1
+```http
+POST /signup HTTP/1.1
 Content-Type: application/json; charset=UTF-8
 
 {
     "email": "test-user-1@mail.com",
     "password": "123456"
 }
+```
 
 #### Response
 
+```http
 HTTP/1.1 201 Created
 Content-Type: application/json; charset=UTF-8
 
 {
-    "user":
-    {
-        "id": "e832f45a-6faa-4eb4-8c40-7ad30ab93df8",
-        "email": "test-user-1@mail.com",
-        "active: false
-    }
+    "info": "confirmation email has been sent to your email"
 }
+```
 
 #### Errors
 
-400 - if credentials do not meet criteria
+ * 400 - if credentials do not meet criteria
+ * 409 - if email already exists
 
 ### Confirm account
 
 #### Request
 
-GET /v1/requests/accounts/c7719bb1-f640-4cd7-9025-01b5ba1a7ad3 HTTP/1.1
+
+```http
+POST /singup/4262c357-e8a7-4714-9327-f9e3610e0fc4 HTTP/1.1
+```
 
 #### Response
 
-HTTP/1.1 200 OK
+```
+HTTP 200 OK
 Content-Type: application/json; charset=UTF-8
 
 {
-    "user":
-    {
-        "id": "e832f45a-6faa-4eb4-8c40-7ad30ab93df8",
-        "email": "test-user-1@mail.com",
-        "active: true
-    }
-    "token":
-    {
-        "access": "0a5c26d7-1c5c-4b37-a2bd-9d084152b33f"
-        "refresh": "67381c43-51eb-43fb-be51-8ed63bb11050"
-        "created": "2017-01-01 00:00:00"
-        "expired": "2017-01-01 00:00:00"
-    }
+    "info": "account has been confirmed"
 }
+```
 
 #### Errors
 
-404 - if no confirmation with the id provided found
+ * 404 - if no confirmation with the id provided was found
 
 ### Login
 
 #### Request
 
-POST /v1/tokens/ HTTP/1.1
+```http
+POST /signin HTTP/1.1
 Content-Type: application/json; charset=UTF-8
 
 {
     "email": "test-user-1@mail.com",
     "password": "123456"
 }
+```
 
 #### Response
 
+```http
 HTTP/1.1 200 OK
 Content-Type: application/json; charset=UTF-8
 
 {
-    "access": "0a5c26d7-1c5c-4b37-a2bd-9d084152b33f"
-    "refresh": "67381c43-51eb-43fb-be51-8ed63bb11050"
-    "created": "2017-01-01 00:00:00"
-    "expired": "2017-01-01 00:00:00"
+    "token":
+    {
+        "created": "2017-01-01 00:00:00",
+        "expires": "2017-01-02 00:00:00",
+        "accessToken": "???",
+        "refreshToken": "???"
+    }
 }
+```
 
 #### Errors
 
-401 - if credentials are invalid
+ * 401 - if credentials are invalid or email is not confirmed
+
+### Logout
+
+#### Request
+
+```http
+POST /signout HTTP/1.1
+Authorization: Bearer ???
+```
+
+#### Response
+
+```http
+HTTP/1.1 204 No content
+```
+
+### Refresh token
+
+#### Request
+
+```http
+POST /refresh HTTP/1.1
+Content-Type: application/json; charset=UTF-8
+
+{
+    "refreshToken": "???"
+}
+
+```
+
+#### Response
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=UTF-8
+
+{
+    "token":
+    {
+        "created": "2017-01-01 00:00:00",
+        "expires": "2017-01-02 00:00:00",
+        "accessToken": "???",
+        "refreshToken": "???"
+    }
+}
+```
 
 ### Request password reset
 
 #### Request
 
-POST /v1/requests/credentials/
+```http
+POST /pwreset
 Content-Type: application/json; charset=UTF-8
 
 {
-    "email": "test-user-1@mail.com"
+    "email": "test-user-1@mail.com",
 }
+```
 
 #### Respnse
 
-HTTP/1.1 204 No content
+```http
+HTTP/1.1 200 OK
+
+{
+    "info": "password rese email has been sent to your email"
+}
+```
 
 ### Reset password
 
 #### Request
 
-POST /v1/requests/credentials/39802b61-9dd4-4ec5-b5c3-94f3d6c68ef0
+```http
+POST /pwreset/39802b61-9dd4-4ec5-b5c3-94f3d6c68ef0
 Content-Type: application/json; charset=UTF-8
 
 {
     "password": "123456"
 }
+```
 
 #### Response
 
-HTTP/1.1 204 No content
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=UTF-8
+
+{
+    "info": "password has been updated"
+}
+```
 
 #### Errors
 
-400 - if the password provided does not meet criteria
+ * 400 - if the password provided does not meet criteria
+ * 404 - if password reset request with the id provided was not found
+
+
+### Login via third party providers
+
+#### Google
+
+TODO
+
+#### GitHub
+
+TODO
+
+#### Facebook
+
+TODO

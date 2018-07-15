@@ -1,11 +1,25 @@
 version: "3"
 services:
   db:
-    build:
-      context: db/
-      dockerfile: Dockerfile
+    container_name: authd-db
+    restart: always
+    image: postgres:10
     ports:
-      - "5432:5432"
+    - 5432:5432
     environment:
-      DBUSER: ${DBUSER}
-      DBNAME: ${DBNAME}
+    - POSTGRES_DB=${AUTHD_DBNAME}
+    - POSTGRES_USER=${AUTHD_DBUSER}
+    - POSTGRES_PASSWORD=${AUTHD_DBPASSWORD}
+  mq:
+    container_name: authd-mq
+    restart: always
+    image: rabbitmq:3.7-alpine
+    ports:
+    - 5672:5672
+  dbctl:
+    container_name: authdctl
+    restart: on-failure
+    image: vbogretsov/authdctl:${AUTHD_VERSION}
+    environment:
+    - DBURL=postgres://${AUTHD_DBUSER}:${AUTHD_DBPASSWORD}@db/${AUTHD_DBNAME}?sslmode=disable
+    command: ["dbup", "-d", "postgres://${AUTHD_DBUSER}:${AUTHD_DBPASSWORD}@db/${AUTHD_DBNAME}?sslmode=disable"]
