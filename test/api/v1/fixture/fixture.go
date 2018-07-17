@@ -1,10 +1,9 @@
-package test
+package fixture
 
 import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/vbogretsov/go-validation"
 	"github.com/vbogretsov/go-validation/jsonerr"
@@ -12,6 +11,8 @@ import (
 
 	api "github.com/vbogretsov/authd/api"
 	apiv1 "github.com/vbogretsov/authd/api/v1"
+
+	"github.com/vbogretsov/authd/test/api/v1/suite"
 )
 
 var (
@@ -56,6 +57,11 @@ var (
 	}
 )
 
+var defaultCredentials = apiv1.Credentials{
+	Email:    "user@mail.com",
+	Password: "123456",
+}
+
 func marshal(v interface{}) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -64,37 +70,14 @@ func marshal(v interface{}) []byte {
 	return b
 }
 
-func moveTime(s *suite) {
-	new := s.timer.Now().Add(s.config.Confirmation.TTL).Add(time.Second)
-	s.timer.Set(new)
-}
-
-func readValidConfirmationID(s *suite) string {
-	id := s.sender.Inbox[0].TemplateArgs["id"].(string)
-	s.sender.Reset()
-	return id
-}
-
-func readInvalidConfirmationID(s *suite) string {
-	return "invalid"
-}
-
-func readExpiredConfirmationID(s *suite) string {
-	delay := s.config.Confirmation.TTL
-	s.timer.Set(s.timer.Now().Add(delay).Add(time.Second))
-	id := s.sender.Inbox[0].TemplateArgs["id"].(string)
-	s.sender.Reset()
-	return id
-}
-
-type signUpFixture struct {
+type SignUp struct {
 	Name         string
 	BodyType     interface{}
 	Creadentials *apiv1.Credentials
 	Response     techo.Response
 }
 
-var signUpFixtures = []signUpFixture{
+var SignUpSet = []SignUp{
 	{
 		Name:     "Ok",
 		BodyType: apiv1.Message{},
@@ -154,7 +137,7 @@ var signUpFixtures = []signUpFixture{
 		Name:     "DuplicatedEmail",
 		BodyType: api.Error{},
 		Creadentials: &apiv1.Credentials{
-			Email:    duplicatedEmail,
+			Email:    suite.DuplicatedEmail,
 			Password: "123456",
 		},
 		Response: techo.Response{
@@ -167,20 +150,15 @@ var signUpFixtures = []signUpFixture{
 	},
 }
 
-type confirmUserFixture struct {
+type ConfirmUser struct {
 	Name        string
 	Credentials apiv1.Credentials
 	BodyType    interface{}
 	Response    techo.Response
-	ReadID      func(*suite) string
+	ReadID      func(*suite.Suite, string) string
 }
 
-var defaultCredentials = apiv1.Credentials{
-	Email:    "user@mail.com",
-	Password: "123456",
-}
-
-var confirmUserFixtures = []confirmUserFixture{
+var ConfirmUserSet = []ConfirmUser{
 	{
 		Name:        "Ok",
 		Credentials: defaultCredentials,
@@ -189,7 +167,7 @@ var confirmUserFixtures = []confirmUserFixture{
 			Code: http.StatusOK,
 			Body: marshal(msgUserConfirmed),
 		},
-		ReadID: readValidConfirmationID,
+		ReadID: suite.ReadValidConfirmationID,
 	},
 	{
 		Name:        "NotFound",
@@ -199,7 +177,7 @@ var confirmUserFixtures = []confirmUserFixture{
 			Code: http.StatusNotFound,
 			Body: marshal(errConfirmationNotFound),
 		},
-		ReadID: readInvalidConfirmationID,
+		ReadID: suite.ReadInvalidConfirmationID,
 	},
 	{
 		Name:        "Expired",
@@ -209,11 +187,11 @@ var confirmUserFixtures = []confirmUserFixture{
 			Code: http.StatusRequestTimeout,
 			Body: marshal(errConfirmationExpired),
 		},
-		ReadID: readExpiredConfirmationID,
+		ReadID: suite.ReadExpiredConfirmationID,
 	},
 }
 
-type signInFixture struct {
+type SignIn struct {
 	Name        string
 	Credentials *apiv1.Credentials
 	CreateUser  bool
@@ -222,7 +200,7 @@ type signInFixture struct {
 	Response    techo.Response
 }
 
-var signInFixtures = []signInFixture{
+var SignInSet = []SignIn{
 	{
 		Name:        "Ok",
 		Credentials: &defaultCredentials,
@@ -264,7 +242,7 @@ var signInFixtures = []signInFixture{
 	},
 }
 
-type resetPasswordFixture struct {
+type ResetPassword struct {
 	Name        string
 	Credentials apiv1.Credentials
 	Email       *apiv1.Email
@@ -273,7 +251,7 @@ type resetPasswordFixture struct {
 	Response    techo.Response
 }
 
-var resetPasswordFixtures = []resetPasswordFixture{
+var ResetPasswordSet = []ResetPassword{
 	{
 		Name:        "Ok",
 		Credentials: defaultCredentials,
@@ -326,20 +304,20 @@ var resetPasswordFixtures = []resetPasswordFixture{
 	},
 }
 
-type updatePasswordFixture struct {
+type UpdatePassword struct {
 	Name        string
 	Credentials apiv1.Credentials
 	Password    apiv1.Password
 	BodyType    interface{}
 	Response    techo.Response
-	ReadID      func(*suite) string
+	ReadID      func(*suite.Suite, string) string
 }
 
-var updatePasswordFixtures = []updatePasswordFixture{
+var UpdatePasswordSet = []UpdatePassword{
 	{
 		Name:        "Ok",
 		Credentials: defaultCredentials,
-		ReadID:      readValidConfirmationID,
+		ReadID:      suite.ReadValidConfirmationID,
 		Password:    apiv1.Password{Password: "654321"},
 		BodyType:    apiv1.Message{},
 		Response: techo.Response{
@@ -350,7 +328,7 @@ var updatePasswordFixtures = []updatePasswordFixture{
 	{
 		Name:        "NotFound",
 		Credentials: defaultCredentials,
-		ReadID:      readInvalidConfirmationID,
+		ReadID:      suite.ReadInvalidConfirmationID,
 		Password:    apiv1.Password{Password: "654321"},
 		BodyType:    api.Error{},
 		Response: techo.Response{
@@ -361,7 +339,7 @@ var updatePasswordFixtures = []updatePasswordFixture{
 	{
 		Name:        "Expired",
 		Credentials: defaultCredentials,
-		ReadID:      readExpiredConfirmationID,
+		ReadID:      suite.ReadExpiredConfirmationID,
 		Password:    apiv1.Password{Password: "654321"},
 		BodyType:    api.Error{},
 		Response: techo.Response{
@@ -372,7 +350,7 @@ var updatePasswordFixtures = []updatePasswordFixture{
 	{
 		Name:        "PasswordShort",
 		Credentials: defaultCredentials,
-		ReadID:      readValidConfirmationID,
+		ReadID:      suite.ReadValidConfirmationID,
 		Password:    apiv1.Password{Password: "65432"},
 		BodyType:    api.Error{},
 		Response: techo.Response{
