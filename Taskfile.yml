@@ -14,6 +14,7 @@ vars:
   TEST_DBNAME: authd
   TEST_DBUSER: authd
   TEST_DBPASSWORD: authd
+  TEST_DBHOST: {sh: echo $TEST_DBHOST}
 
 tasks:
   ctlbin:
@@ -81,4 +82,4 @@ tasks:
     desc: run tests
     deps: [up]
     cmds:
-    - go test -v ./tests/... -dbconn=postgres://authd:authd@${docker-machine ip dev}/authd?sslmode=disable
+    - go test -v ./test/... -dbconn=postgres://authd:authd@{{.TEST_DBHOST}}/authd?sslmode=disable -run TestSignUp

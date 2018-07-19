@@ -6,10 +6,10 @@ import (
 
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
-
-	"github.com/vbogretsov/authd/app"
-	validation "github.com/vbogretsov/go-validation"
+	"github.com/vbogretsov/go-validation"
 	"github.com/vbogretsov/go-validation/jsonerr"
+
+	"github.com/vbogretsov/authd/auth"
 )
 
 // Error represents API error.
@@ -31,17 +31,17 @@ func ErrorHandler(err error, c echo.Context) {
 	// TODO(vbogretsov): add debug mode.
 
 	switch err.(type) {
-	case app.ArgumentError:
+	case auth.ArgumentError:
 		s = http.StatusBadRequest
 		e.Message = "validation errors"
-		e.Errors = jsonerr.Errors(err.(app.ArgumentError).Source.(validation.Errors))
-	case app.ExpiredError:
+		e.Errors = jsonerr.Errors(err.(auth.ArgumentError).Source.(validation.Errors))
+	case auth.ExpiredError:
 		s = http.StatusRequestTimeout
 		e.Message = err.Error()
-	case app.NotFoundError:
+	case auth.NotFoundError:
 		s = http.StatusNotFound
 		e.Message = err.Error()
-	case app.UnauthorizedError:
+	case auth.UnauthorizedError:
 		s = http.StatusUnauthorized
 		e.Message = err.Error()
 	case *echo.HTTPError:

@@ -25,14 +25,6 @@ type Confirmation struct {
 	Expires time.Time `gorm:"type:timestamp;not null;"`
 }
 
-// Token represents a result of a successfull login. Access token is a bearer
-// token.
-type Token struct {
-	Access  string `json:"access"`
-	Refresh string `json:"refresh"`
-	Expires int64  `json:"expires"`
-}
-
 // Refresh represents refresh token record.
 type Refresh struct {
 	ID      string    `gorm:"type:varchar(32);primary_key;"`

@@ -9,8 +9,9 @@ import (
 	"github.com/vbogretsov/go-validation/jsonerr"
 	"github.com/vbogretsov/techo"
 
-	api "github.com/vbogretsov/authd/api"
+	"github.com/vbogretsov/authd/api"
 	apiv1 "github.com/vbogretsov/authd/api/v1"
+	"github.com/vbogretsov/authd/auth"
 
 	"github.com/vbogretsov/authd/test/api/v1/suite"
 )
@@ -57,23 +58,23 @@ var (
 	}
 )
 
-var defaultCredentials = apiv1.Credentials{
+var defaultCredentials = auth.Credentials{
 	Email:    "user@mail.com",
 	Password: "123456",
 }
 
 func marshal(v interface{}) []byte {
-	b, err := json.Marshal(v)
+	bts, err := json.Marshal(v)
 	if err != nil {
 		panic(err)
 	}
-	return b
+	return bts
 }
 
 type SignUp struct {
 	Name         string
 	BodyType     interface{}
-	Creadentials *apiv1.Credentials
+	Creadentials *auth.Credentials
 	Response     techo.Response
 }
 
@@ -81,7 +82,7 @@ var SignUpSet = []SignUp{
 	{
 		Name:     "Ok",
 		BodyType: apiv1.Message{},
-		Creadentials: &apiv1.Credentials{
+		Creadentials: &auth.Credentials{
 			Email:    "user@mail.com",
 			Password: "123456",
 		},
@@ -93,7 +94,7 @@ var SignUpSet = []SignUp{
 	{
 		Name:     "MissingEmail",
 		BodyType: api.Error{},
-		Creadentials: &apiv1.Credentials{
+		Creadentials: &auth.Credentials{
 			Password: "123456",
 		},
 		Response: techo.Response{
@@ -122,7 +123,7 @@ var SignUpSet = []SignUp{
 	{
 		Name:     "MissingPassword",
 		BodyType: api.Error{},
-		Creadentials: &apiv1.Credentials{
+		Creadentials: &auth.Credentials{
 			Email: "user@mail.com",
 		},
 		Response: techo.Response{
@@ -136,7 +137,7 @@ var SignUpSet = []SignUp{
 	{
 		Name:     "DuplicatedEmail",
 		BodyType: api.Error{},
-		Creadentials: &apiv1.Credentials{
+		Creadentials: &auth.Credentials{
 			Email:    suite.DuplicatedEmail,
 			Password: "123456",
 		},
@@ -152,48 +153,48 @@ var SignUpSet = []SignUp{
 
 type ConfirmUser struct {
 	Name        string
-	Credentials apiv1.Credentials
+	Credentials *auth.Credentials
 	BodyType    interface{}
 	Response    techo.Response
-	ReadID      func(*suite.Suite, string) string
+	ReadID      func(*suite.Suite, string, auth.ConfirmationConfig) string
 }
 
 var ConfirmUserSet = []ConfirmUser{
 	{
 		Name:        "Ok",
-		Credentials: defaultCredentials,
+		Credentials: &defaultCredentials,
 		BodyType:    apiv1.Message{},
+		ReadID:      suite.ReadValidConfirmationID,
 		Response: techo.Response{
 			Code: http.StatusOK,
 			Body: marshal(msgUserConfirmed),
 		},
-		ReadID: suite.ReadValidConfirmationID,
 	},
 	{
 		Name:        "NotFound",
-		Credentials: defaultCredentials,
+		Credentials: &defaultCredentials,
 		BodyType:    api.Error{},
+		ReadID:      suite.ReadInvalidConfirmationID,
 		Response: techo.Response{
 			Code: http.StatusNotFound,
 			Body: marshal(errConfirmationNotFound),
 		},
-		ReadID: suite.ReadInvalidConfirmationID,
 	},
 	{
 		Name:        "Expired",
-		Credentials: defaultCredentials,
+		Credentials: &defaultCredentials,
 		BodyType:    api.Error{},
+		ReadID:      suite.ReadExpiredConfirmationID,
 		Response: techo.Response{
 			Code: http.StatusRequestTimeout,
 			Body: marshal(errConfirmationExpired),
 		},
-		ReadID: suite.ReadExpiredConfirmationID,
 	},
 }
 
 type SignIn struct {
 	Name        string
-	Credentials *apiv1.Credentials
+	Credentials *auth.Credentials
 	CreateUser  bool
 	ConfirmUser bool
 	BodyType    interface{}
@@ -244,8 +245,8 @@ var SignInSet = []SignIn{
 
 type ResetPassword struct {
 	Name        string
-	Credentials apiv1.Credentials
-	Email       *apiv1.Email
+	Credentials *auth.Credentials
+	Email       *auth.Email
 	HasInbox    bool
 	BodyType    interface{}
 	Response    techo.Response
@@ -254,8 +255,8 @@ type ResetPassword struct {
 var ResetPasswordSet = []ResetPassword{
 	{
 		Name:        "Ok",
-		Credentials: defaultCredentials,
-		Email:       &apiv1.Email{Email: defaultCredentials.Email},
+		Credentials: &defaultCredentials,
+		Email:       &auth.Email{Email: defaultCredentials.Email},
 		HasInbox:    true,
 		BodyType:    apiv1.Message{},
 		Response: techo.Response{
@@ -265,8 +266,8 @@ var ResetPasswordSet = []ResetPassword{
 	},
 	{
 		Name:        "EmailNotExists",
-		Credentials: defaultCredentials,
-		Email:       &apiv1.Email{Email: "invalid@mail.com"},
+		Credentials: &defaultCredentials,
+		Email:       &auth.Email{Email: "invalid@mail.com"},
 		HasInbox:    false,
 		BodyType:    apiv1.Message{},
 		Response: techo.Response{
@@ -276,8 +277,8 @@ var ResetPasswordSet = []ResetPassword{
 	},
 	{
 		Name:        "InvalidEmail",
-		Credentials: defaultCredentials,
-		Email:       &apiv1.Email{Email: "invalidmail.com"},
+		Credentials: &defaultCredentials,
+		Email:       &auth.Email{Email: "invalidmail.com"},
 		HasInbox:    false,
 		BodyType:    apiv1.Message{},
 		Response: techo.Response{
@@ -290,7 +291,7 @@ var ResetPasswordSet = []ResetPassword{
 	},
 	{
 		Name:        "MissingEmail",
-		Credentials: defaultCredentials,
+		Credentials: &defaultCredentials,
 		Email:       nil,
 		HasInbox:    false,
 		BodyType:    apiv1.Message{},
@@ -306,19 +307,19 @@ var ResetPasswordSet = []ResetPassword{
 
 type UpdatePassword struct {
 	Name        string
-	Credentials apiv1.Credentials
-	Password    apiv1.Password
+	Credentials *auth.Credentials
+	Password    *auth.Password
 	BodyType    interface{}
 	Response    techo.Response
-	ReadID      func(*suite.Suite, string) string
+	ReadID      func(*suite.Suite, string, auth.ConfirmationConfig) string
 }
 
 var UpdatePasswordSet = []UpdatePassword{
 	{
 		Name:        "Ok",
-		Credentials: defaultCredentials,
+		Credentials: &defaultCredentials,
+		Password:    &auth.Password{Password: "654321"},
 		ReadID:      suite.ReadValidConfirmationID,
-		Password:    apiv1.Password{Password: "654321"},
 		BodyType:    apiv1.Message{},
 		Response: techo.Response{
 			Code: http.StatusOK,
@@ -327,9 +328,9 @@ var UpdatePasswordSet = []UpdatePassword{
 	},
 	{
 		Name:        "NotFound",
-		Credentials: defaultCredentials,
+		Credentials: &defaultCredentials,
+		Password:    &auth.Password{Password: "654321"},
 		ReadID:      suite.ReadInvalidConfirmationID,
-		Password:    apiv1.Password{Password: "654321"},
 		BodyType:    api.Error{},
 		Response: techo.Response{
 			Code: http.StatusNotFound,
@@ -338,23 +339,23 @@ var UpdatePasswordSet = []UpdatePassword{
 	},
 	{
 		Name:        "Expired",
-		Credentials: defaultCredentials,
+		Credentials: &defaultCredentials,
+		Password:    &auth.Password{Password: "654321"},
 		ReadID:      suite.ReadExpiredConfirmationID,
-		Password:    apiv1.Password{Password: "654321"},
 		BodyType:    api.Error{},
 		Response: techo.Response{
-			Code: http.StatusNotFound,
-			Body: marshal(errConfirmationNotFound),
+			Code: http.StatusRequestTimeout,
+			Body: marshal(errConfirmationExpired),
 		},
 	},
 	{
 		Name:        "PasswordShort",
-		Credentials: defaultCredentials,
+		Credentials: &defaultCredentials,
+		Password:    &auth.Password{Password: "65432"},
 		ReadID:      suite.ReadValidConfirmationID,
-		Password:    apiv1.Password{Password: "65432"},
 		BodyType:    api.Error{},
 		Response: techo.Response{
-			Code: http.StatusNotFound,
+			Code: http.StatusBadRequest,
 			Body: marshal(api.Error{
 				Message: "validation errors",
 				Errors:  jsonerr.Errors([]error{errPasswordShort}),

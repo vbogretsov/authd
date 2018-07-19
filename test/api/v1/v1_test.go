@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	apiv1 "github.com/vbogretsov/authd/api/v1"
+
+	"github.com/vbogretsov/authd/auth"
+
 	"github.com/vbogretsov/authd/test/api/v1/apiurl"
 	"github.com/vbogretsov/authd/test/api/v1/fixture"
 	"github.com/vbogretsov/authd/test/api/v1/suite"
@@ -22,9 +24,7 @@ func TestSignUp(t *testing.T) {
 			suite.CheckResponse(t, fx.BodyType, fx.Response, resp)
 
 			if resp.Code == http.StatusOK {
-				link := s.Config.Confirmation.SignUpLink
-				template := s.Config.Confirmation.SingUpTemplate
-				s.CheckInbox(t, fx.Creadentials.Email, template, link)
+				s.CheckInbox(t, fx.Creadentials.Email, s.Config.SignUp)
 			}
 		})
 		s.Cleanup(t)
@@ -35,16 +35,14 @@ func TestConfirmUser(t *testing.T) {
 	for _, fx := range fixture.ConfirmUserSet {
 		s := suite.New(t, *dbconn)
 		t.Run(fx.Name, func(t *testing.T) {
-			s.SignUp(t, fx.Credentials)
+			s.SignUp(t, *fx.Credentials)
 
-			conID := fx.ReadID(s, fx.Credentials.Email)
+			conID := fx.ReadID(s, fx.Credentials.Email, s.Config.SignUp)
 			resp := s.Client.Post(apiurl.ConfirmUser(conID), nil, nil)
 			suite.CheckResponse(t, fx.BodyType, fx.Response, resp)
 
 			if resp.Code == http.StatusRequestTimeout {
-				link := s.Config.Confirmation.SignUpLink
-				template := s.Config.Confirmation.SingUpTemplate
-				s.CheckInbox(t, fx.Credentials.Email, template, link)
+				s.CheckInbox(t, fx.Credentials.Email, s.Config.SignUp)
 			}
 
 			if resp.Code == http.StatusOK {
@@ -83,16 +81,14 @@ func TestResetPassword(t *testing.T) {
 	for _, fx := range fixture.ResetPasswordSet {
 		s := suite.New(t, *dbconn)
 		t.Run(fx.Name, func(t *testing.T) {
-			s.SignUp(t, fx.Credentials)
+			s.SignUp(t, *fx.Credentials)
 			s.ConfirmUser(t, fx.Credentials.Email)
 
 			resp := s.Client.Post(apiurl.ResetPassword(), nil, fx.Email)
 			suite.CheckResponse(t, fx.BodyType, fx.Response, resp)
 
 			if fx.HasInbox {
-				link := s.Config.Confirmation.ResetPwLink
-				template := s.Config.Confirmation.ResetPwTemplate
-				s.CheckInbox(t, fx.Credentials.Email, template, link)
+				s.CheckInbox(t, fx.Credentials.Email, s.Config.ResetPw)
 			} else {
 				_, hasmail := s.Sender.ReadMail(fx.Email.Email)
 				require.False(t, hasmail)
@@ -106,21 +102,23 @@ func TestUpdatePassword(t *testing.T) {
 	for _, fx := range fixture.UpdatePasswordSet {
 		s := suite.New(t, *dbconn)
 		t.Run(fx.Name, func(t *testing.T) {
-			s.SignUp(t, fx.Credentials)
+			s.SignUp(t, *fx.Credentials)
 			s.ConfirmUser(t, fx.Credentials.Email)
 			s.ResetPassword(t, fx.Credentials.Email)
 
-			conID := fx.ReadID(s, fx.Credentials.Email)
+			conID := fx.ReadID(s, fx.Credentials.Email, s.Config.ResetPw)
 			resp := s.Client.Post(apiurl.UpdatePassword(conID), nil, fx.Password)
 			suite.CheckResponse(t, fx.BodyType, fx.Response, resp)
 
 			if resp.Code == http.StatusOK {
-				cred := apiv1.Credentials{
+				resp1 := s.Client.Post(apiurl.SignIn(), nil, auth.Credentials{
 					Email:    fx.Credentials.Email,
 					Password: fx.Password.Password,
-				}
-				resp := s.Client.Post(apiurl.SignIn(), nil, cred)
-				require.Equal(t, http.StatusOK, resp.Code)
+				})
+				require.Equal(t, http.StatusOK, resp1.Code)
+
+				resp2 := s.Client.Post(apiurl.SignIn(), nil, fx.Credentials)
+				require.Equal(t, http.StatusUnauthorized, resp2.Code)
 			}
 		})
 		s.Cleanup(t)
