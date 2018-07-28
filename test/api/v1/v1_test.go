@@ -1,11 +1,14 @@
 package v1_test
 
 import (
+	"encoding/json"
 	"flag"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	mail "github.com/vbogretsov/go-mail"
+	"github.com/vbogretsov/techo"
 
 	"github.com/vbogretsov/authd/auth"
 
@@ -16,17 +19,68 @@ import (
 
 var dbconn = flag.String("dbconn", "", "database connection string")
 
+func checkResponse(t *testing.T, exp fixture.Response, act techo.Response) {
+	require.Equal(t, exp.Code, act.Code, string(act.Body))
+
+	expBody := exp.Body
+	actBody := exp.Type
+
+	require.NoError(t, json.Unmarshal(act.Body, actBody))
+	require.Equal(t, expBody, actBody, string(act.Body))
+}
+
+func checkInbox(t *testing.T, email string, s *suite.Suite, c auth.ConfirmConfig) {
+	act, ok := s.Sender.ReadMail(email)
+	require.True(t, ok)
+
+	require.Contains(t, act.TemplateArgs, "id")
+
+	exp := mail.Request{
+		TemplateLang: "en",
+		TemplateName: c.Template,
+		TemplateArgs: map[string]interface{}{
+			"link": c.Link,
+			"id":   act.TemplateArgs["id"].(string),
+		},
+		To: []mail.Address{{Email: email}},
+	}
+
+	require.Equal(t, exp, act)
+}
+
+func checkToken(t *testing.T, email string, data []byte, s *suite.Suite) {
+	token := auth.Token{}
+	require.NoError(t, json.Unmarshal(data, &token))
+
+	expiresExp := s.Timer.Now().Add(s.Config.Token.AccessTTL).Unix()
+	expiresAct := token.Expires
+	require.Equal(t, expiresExp, expiresAct)
+
+	claims, err := s.Config.Token.Algorithm.Decode(token.Access)
+	require.NoError(t, err)
+
+	userID, err := claims.Get("id")
+	require.NoError(t, err)
+	require.Len(t, userID.(string), 32)
+
+	userEmail, err := claims.Get("email")
+	require.NoError(t, err)
+	require.Equal(t, email, userEmail)
+}
+
 func TestSignUp(t *testing.T) {
 	for _, fx := range fixture.SignUpSet {
 		s := suite.New(t, *dbconn)
+
 		t.Run(fx.Name, func(t *testing.T) {
-			resp := s.Client.Post(apiurl.SignUp(), nil, fx.Creadentials)
-			suite.CheckResponse(t, fx.BodyType, fx.Response, resp)
+			resp := s.Client.Post(apiurl.SignUp(), nil, fx.Credentials)
+			checkResponse(t, fx.Response, resp)
 
 			if resp.Code == http.StatusOK {
-				s.CheckInbox(t, fx.Creadentials.Email, s.Config.SignUp)
+				checkInbox(t, fx.Credentials.Email, s, s.Config.SignUp)
 			}
 		})
+
 		s.Cleanup(t)
 	}
 }
@@ -34,15 +88,16 @@ func TestSignUp(t *testing.T) {
 func TestConfirmUser(t *testing.T) {
 	for _, fx := range fixture.ConfirmUserSet {
 		s := suite.New(t, *dbconn)
+
 		t.Run(fx.Name, func(t *testing.T) {
 			s.SignUp(t, *fx.Credentials)
 
-			conID := fx.ReadID(s, fx.Credentials.Email, s.Config.SignUp)
+			conID := fx.ReadID(fx.Credentials.Email, s, s.Config.SignUp)
 			resp := s.Client.Post(apiurl.ConfirmUser(conID), nil, nil)
-			suite.CheckResponse(t, fx.BodyType, fx.Response, resp)
+			checkResponse(t, fx.Response, resp)
 
 			if resp.Code == http.StatusRequestTimeout {
-				s.CheckInbox(t, fx.Credentials.Email, s.Config.SignUp)
+				checkInbox(t, fx.Credentials.Email, s, s.Config.SignUp)
 			}
 
 			if resp.Code == http.StatusOK {
@@ -50,6 +105,7 @@ func TestConfirmUser(t *testing.T) {
 				require.Equal(t, http.StatusOK, resp.Code)
 			}
 		})
+
 		s.Cleanup(t)
 	}
 }
@@ -68,9 +124,9 @@ func TestSignIn(t *testing.T) {
 			resp := s.Client.Post(apiurl.SignIn(), nil, fx.Credentials)
 
 			if resp.Code == http.StatusOK {
-				// TODO: access protected resource
+				checkToken(t, fx.Credentials.Email, resp.Body, s)
 			} else {
-				suite.CheckResponse(t, fx.BodyType, fx.Response, resp)
+				checkResponse(t, fx.Response, resp)
 			}
 		})
 		s.Cleanup(t)
@@ -85,11 +141,11 @@ func TestResetPassword(t *testing.T) {
 			s.ConfirmUser(t, fx.Credentials.Email)
 
 			resp := s.Client.Post(apiurl.ResetPassword(), nil, fx.Email)
-			suite.CheckResponse(t, fx.BodyType, fx.Response, resp)
+			checkResponse(t, fx.Response, resp)
 
 			if fx.HasInbox {
-				s.CheckInbox(t, fx.Credentials.Email, s.Config.ResetPw)
-			} else {
+				checkInbox(t, fx.Credentials.Email, s, s.Config.ResetPw)
+			} else if fx.Email != nil {
 				_, hasmail := s.Sender.ReadMail(fx.Email.Email)
 				require.False(t, hasmail)
 			}
@@ -101,14 +157,16 @@ func TestResetPassword(t *testing.T) {
 func TestUpdatePassword(t *testing.T) {
 	for _, fx := range fixture.UpdatePasswordSet {
 		s := suite.New(t, *dbconn)
+
 		t.Run(fx.Name, func(t *testing.T) {
 			s.SignUp(t, *fx.Credentials)
 			s.ConfirmUser(t, fx.Credentials.Email)
+			s.SignIn(t, *fx.Credentials)
 			s.ResetPassword(t, fx.Credentials.Email)
 
-			conID := fx.ReadID(s, fx.Credentials.Email, s.Config.ResetPw)
+			conID := fx.ReadID(fx.Credentials.Email, s, s.Config.ResetPw)
 			resp := s.Client.Post(apiurl.UpdatePassword(conID), nil, fx.Password)
-			suite.CheckResponse(t, fx.BodyType, fx.Response, resp)
+			checkResponse(t, fx.Response, resp)
 
 			if resp.Code == http.StatusOK {
 				resp1 := s.Client.Post(apiurl.SignIn(), nil, auth.Credentials{
@@ -121,6 +179,31 @@ func TestUpdatePassword(t *testing.T) {
 				require.Equal(t, http.StatusUnauthorized, resp2.Code)
 			}
 		})
+
+		s.Cleanup(t)
+	}
+}
+
+func TestRefresh(t *testing.T) {
+	for _, fx := range fixture.RefreshSet {
+		s := suite.New(t, *dbconn)
+
+		t.Run(fx.Name, func(t *testing.T) {
+			s.SignUp(t, *fx.Credentials)
+			s.ConfirmUser(t, fx.Credentials.Email)
+
+			token := s.SignIn(t, *fx.Credentials)
+			resp := s.Client.Post(apiurl.Refresh(), nil, auth.Refresh{
+				Refresh: token.Refresh,
+			})
+
+			if resp.Code == http.StatusOK {
+				checkToken(t, fx.Credentials.Email, resp.Body, s)
+			} else {
+				checkResponse(t, fx.Response, resp)
+			}
+		})
+
 		s.Cleanup(t)
 	}
 }

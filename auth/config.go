@@ -12,8 +12,8 @@ import (
 type Config struct {
 	Token    TokenConfig
 	Password PasswordConfig
-	SignUp   ConfirmationConfig
-	ResetPw  ConfirmationConfig
+	SignUp   ConfirmConfig
+	ResetPw  ConfirmConfig
 }
 
 // TokenConfig contains information required to sign and refresh tokens.
@@ -30,8 +30,8 @@ type PasswordConfig struct {
 	HashCost int
 }
 
-// ConfirmationConfig contains information required to generate a confirmation.
-type ConfirmationConfig struct {
+// ConfirmConfig contains information required to generate a confirmation.
+type ConfirmConfig struct {
 	TTL      time.Duration
 	Kind     int8
 	Link     string
@@ -48,12 +48,12 @@ var DefaultConfig = Config{
 		MinLen:   6,
 		HashCost: bcrypt.RecommendedCost,
 	},
-	SignUp: ConfirmationConfig{
+	SignUp: ConfirmConfig{
 		TTL:      time.Duration(time.Hour * 24 * 5),
 		Link:     "signup",
 		Template: "signup.msg",
 	},
-	ResetPw: ConfirmationConfig{
+	ResetPw: ConfirmConfig{
 		TTL:      time.Duration(time.Hour * 12),
 		Link:     "resetpw",
 		Template: "resetpw.msg",

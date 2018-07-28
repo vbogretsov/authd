@@ -3,19 +3,13 @@ services:
   db:
     container_name: authd-db
     restart: always
-    image: postgres:10
+    image: postgres:10-alpine
     ports:
     - 5432:5432
     environment:
     - POSTGRES_DB=${AUTHD_DBNAME}
     - POSTGRES_USER=${AUTHD_DBUSER}
     - POSTGRES_PASSWORD=${AUTHD_DBPASSWORD}
-  mq:
-    container_name: authd-mq
-    restart: always
-    image: rabbitmq:3.7-alpine
-    ports:
-    - 5672:5672
   dbctl:
     container_name: authdctl
     restart: on-failure

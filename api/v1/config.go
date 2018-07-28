@@ -35,10 +35,10 @@ type StrConfig struct {
 
 // DefaultStrConf represents default strings configuration.
 var DefaultStrConf = StrConfig{
-	SignUp:         "ok-signup",
-	ConfirmUser:    "ok-confirm-user",
-	ResetPassword:  "ok-resetpw",
-	UpdatePassword: "ok-update-password",
+	SignUp:         "user-confirmation-sent",
+	ConfirmUser:    "user-activated",
+	ResetPassword:  "password-reset-sent",
+	UpdatePassword: "password-updated",
 }
 
 // StrConf represents strings configuration.

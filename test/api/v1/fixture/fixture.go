@@ -1,152 +1,174 @@
 package fixture
 
 import (
-	"encoding/json"
-	"errors"
 	"net/http"
+	"time"
 
 	"github.com/vbogretsov/go-validation"
-	"github.com/vbogretsov/go-validation/jsonerr"
-	"github.com/vbogretsov/techo"
 
 	"github.com/vbogretsov/authd/api"
-	apiv1 "github.com/vbogretsov/authd/api/v1"
+	"github.com/vbogretsov/authd/api/v1"
 	"github.com/vbogretsov/authd/auth"
 
 	"github.com/vbogretsov/authd/test/api/v1/suite"
 )
 
 var (
-	msgConfirmationEmailSent = apiv1.Message{
-		Message: "confirmation email has been sent",
+	defaultCredentials = auth.Credentials{
+		Email:    "user@mail.com",
+		Password: "123456",
 	}
-	msgPwResetEmailSent = apiv1.Message{
-		Message: "password reset email has been sent",
+
+	messageConfirmationSent = v1.Message{
+		Message: "user-confirmation-sent",
 	}
-	msgUserConfirmed = apiv1.Message{
-		Message: "user has been activated",
+	messageUserActivated = v1.Message{
+		Message: "user-activated",
 	}
-	msgPasswordUpdated = apiv1.Message{
-		Message: "password has been updated",
+	messagePwresetSent = v1.Message{
+		Message: "password-reset-sent",
 	}
-	errInvalidEmail = validation.StructError{
-		Field: "email",
-		Errors: []error{
-			errors.New("invalid email address"),
+	messagePasswordUpdated = v1.Message{
+		Message: "password-updated",
+	}
+
+	errorEmailInvalid = validationError{
+		Path:  ".email",
+		Error: "email-invalid",
+	}
+	errorEmailUniq = validationError{
+		Path:  ".email",
+		Error: "email-uniq",
+	}
+	errorPasswordShort = validationError{
+		Path:  ".password",
+		Error: "password-short",
+		Params: validation.Params{
+			"minLen": float64(suite.Config.Password.MinLen),
 		},
 	}
-	errDuplicatedEmail = validation.StructError{
-		Field: "email",
-		Errors: []error{
-			errors.New("email already in use"),
-		},
+	errorConfirmationNotFound = api.Error{
+		Message: "confirmation-notfound",
 	}
-	errPasswordShort = validation.StructError{
-		Field: "password",
-		Errors: []error{
-			errors.New("password cannot be shorter that 6 characters"),
-		},
+	errorConfirmationExpired = api.Error{
+		Message: "confirmation-expired",
 	}
-	errConfirmationNotFound = api.Error{
-		Message: "confirmation not found",
+	errorUnauthorized = api.Error{
+		Message: "login-invalid",
 	}
-	errConfirmationExpired = api.Error{
-		Message: "confirmation has been expired",
+	errorRefreshNotFound = api.Error{
+		Message: "refresh-notfound",
 	}
-	errUnauthorized = api.Error{
-		Message: "invalid email or password",
+	errorRefreshExpired = api.Error{
+		Message: "refresh-expired",
 	}
 )
 
-var defaultCredentials = auth.Credentials{
-	Email:    "user@mail.com",
-	Password: "123456",
+func readValidCID(email string, s *suite.Suite, c auth.ConfirmConfig) string {
+	mail, _ := s.Sender.ReadMail(email)
+	id := mail.TemplateArgs["id"].(string)
+	return id
 }
 
-func marshal(v interface{}) []byte {
-	bts, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return bts
+func readInvalidCID(email string, s *suite.Suite, c auth.ConfirmConfig) string {
+	return "invalid"
+}
+
+func readExpiredCID(email string, s *suite.Suite, c auth.ConfirmConfig) string {
+	s.Timer.Set(s.Timer.Now().Add(c.TTL).Add(time.Second))
+
+	mail, _ := s.Sender.ReadMail(email)
+	id := mail.TemplateArgs["id"].(string)
+	return id
+}
+
+type validationError struct {
+	Path   string
+	Error  string
+	Params map[string]interface{}
+}
+
+type Response struct {
+	Code int
+	Type interface{}
+	Body interface{}
 }
 
 type SignUp struct {
-	Name         string
-	BodyType     interface{}
-	Creadentials *auth.Credentials
-	Response     techo.Response
+	Name        string
+	Credentials *auth.Credentials
+	Response    Response
 }
 
 var SignUpSet = []SignUp{
 	{
-		Name:     "Ok",
-		BodyType: apiv1.Message{},
-		Creadentials: &auth.Credentials{
+		Name: "Ok",
+		Credentials: &auth.Credentials{
 			Email:    "user@mail.com",
 			Password: "123456",
 		},
-		Response: techo.Response{
+		Response: Response{
 			Code: http.StatusOK,
-			Body: marshal(msgConfirmationEmailSent),
+			Type: &v1.Message{},
+			Body: &messageConfirmationSent,
 		},
 	},
 	{
-		Name:     "MissingEmail",
-		BodyType: api.Error{},
-		Creadentials: &auth.Credentials{
+		Name: "MissingEmail",
+		Credentials: &auth.Credentials{
 			Password: "123456",
 		},
-		Response: techo.Response{
+		Response: Response{
 			Code: http.StatusBadRequest,
-			Body: marshal(api.Error{
+			Type: &api.Error{Errors: &[]validationError{}},
+			Body: &api.Error{
 				Message: "validation errors",
-				Errors:  jsonerr.Errors([]error{errInvalidEmail}),
-			}),
+				Errors:  &[]validationError{errorEmailInvalid},
+			},
 		},
 	},
 	{
-		Name:         "MissingEmailAndPassword",
-		BodyType:     api.Error{},
-		Creadentials: nil,
-		Response: techo.Response{
-			Code: http.StatusBadRequest,
-			Body: marshal(api.Error{
-				Message: "validation errors",
-				Errors: jsonerr.Errors([]error{
-					errInvalidEmail,
-					errPasswordShort,
-				}),
-			}),
-		},
-	},
-	{
-		Name:     "MissingPassword",
-		BodyType: api.Error{},
-		Creadentials: &auth.Credentials{
+		Name: "MissingPassword",
+		Credentials: &auth.Credentials{
 			Email: "user@mail.com",
 		},
-		Response: techo.Response{
+		Response: Response{
 			Code: http.StatusBadRequest,
-			Body: marshal(api.Error{
+			Type: &api.Error{Errors: &[]validationError{}},
+			Body: &api.Error{
 				Message: "validation errors",
-				Errors:  jsonerr.Errors([]error{errPasswordShort}),
-			}),
+				Errors:  &[]validationError{errorPasswordShort},
+			},
 		},
 	},
 	{
-		Name:     "DuplicatedEmail",
-		BodyType: api.Error{},
-		Creadentials: &auth.Credentials{
+		Name:        "MissingEmailAndPassword",
+		Credentials: nil,
+		Response: Response{
+			Code: http.StatusBadRequest,
+			Type: &api.Error{Errors: &[]validationError{}},
+			Body: &api.Error{
+				Message: "validation errors",
+				Errors: &[]validationError{
+					errorEmailInvalid,
+					errorPasswordShort,
+				},
+			},
+		},
+	},
+	{
+		Name: "DuplicatedEmail",
+		Credentials: &auth.Credentials{
 			Email:    suite.DuplicatedEmail,
 			Password: "123456",
 		},
-		Response: techo.Response{
+		Response: Response{
 			Code: http.StatusBadRequest,
-			Body: marshal(api.Error{
+			Type: &api.Error{Errors: &[]validationError{}},
+			Body: &api.Error{
 				Message: "validation errors",
-				Errors:  jsonerr.Errors([]error{errDuplicatedEmail}),
-			}),
+				Errors:  &[]validationError{errorEmailUniq},
+			},
 		},
 	},
 }
@@ -154,40 +176,39 @@ var SignUpSet = []SignUp{
 type ConfirmUser struct {
 	Name        string
 	Credentials *auth.Credentials
-	BodyType    interface{}
-	Response    techo.Response
-	ReadID      func(*suite.Suite, string, auth.ConfirmationConfig) string
+	Response    Response
+	ReadID      func(string, *suite.Suite, auth.ConfirmConfig) string
 }
 
 var ConfirmUserSet = []ConfirmUser{
 	{
 		Name:        "Ok",
 		Credentials: &defaultCredentials,
-		BodyType:    apiv1.Message{},
-		ReadID:      suite.ReadValidConfirmationID,
-		Response: techo.Response{
+		ReadID:      readValidCID,
+		Response: Response{
 			Code: http.StatusOK,
-			Body: marshal(msgUserConfirmed),
+			Type: &v1.Message{},
+			Body: &messageUserActivated,
 		},
 	},
 	{
 		Name:        "NotFound",
 		Credentials: &defaultCredentials,
-		BodyType:    api.Error{},
-		ReadID:      suite.ReadInvalidConfirmationID,
-		Response: techo.Response{
+		ReadID:      readInvalidCID,
+		Response: Response{
 			Code: http.StatusNotFound,
-			Body: marshal(errConfirmationNotFound),
+			Type: &api.Error{},
+			Body: &errorConfirmationNotFound,
 		},
 	},
 	{
 		Name:        "Expired",
 		Credentials: &defaultCredentials,
-		BodyType:    api.Error{},
-		ReadID:      suite.ReadExpiredConfirmationID,
-		Response: techo.Response{
+		ReadID:      readExpiredCID,
+		Response: Response{
 			Code: http.StatusRequestTimeout,
-			Body: marshal(errConfirmationExpired),
+			Type: &api.Error{},
+			Body: &errorConfirmationExpired,
 		},
 	},
 }
@@ -197,8 +218,7 @@ type SignIn struct {
 	Credentials *auth.Credentials
 	CreateUser  bool
 	ConfirmUser bool
-	BodyType    interface{}
-	Response    techo.Response
+	Response    Response
 }
 
 var SignInSet = []SignIn{
@@ -213,10 +233,10 @@ var SignInSet = []SignIn{
 		Credentials: &defaultCredentials,
 		CreateUser:  false,
 		ConfirmUser: false,
-		BodyType:    api.Error{},
-		Response: techo.Response{
+		Response: Response{
 			Code: http.StatusUnauthorized,
-			Body: marshal(errUnauthorized),
+			Type: &api.Error{},
+			Body: &errorUnauthorized,
 		},
 	},
 	{
@@ -224,10 +244,10 @@ var SignInSet = []SignIn{
 		Credentials: &defaultCredentials,
 		CreateUser:  false,
 		ConfirmUser: false,
-		BodyType:    api.Error{},
-		Response: techo.Response{
+		Response: Response{
 			Code: http.StatusUnauthorized,
-			Body: marshal(errUnauthorized),
+			Type: &api.Error{},
+			Body: &errorUnauthorized,
 		},
 	},
 	{
@@ -235,10 +255,10 @@ var SignInSet = []SignIn{
 		Credentials: nil,
 		CreateUser:  false,
 		ConfirmUser: false,
-		BodyType:    api.Error{},
-		Response: techo.Response{
+		Response: Response{
 			Code: http.StatusUnauthorized,
-			Body: marshal(errUnauthorized),
+			Type: &api.Error{},
+			Body: &errorUnauthorized,
 		},
 	},
 }
@@ -248,8 +268,7 @@ type ResetPassword struct {
 	Credentials *auth.Credentials
 	Email       *auth.Email
 	HasInbox    bool
-	BodyType    interface{}
-	Response    techo.Response
+	Response    Response
 }
 
 var ResetPasswordSet = []ResetPassword{
@@ -258,10 +277,10 @@ var ResetPasswordSet = []ResetPassword{
 		Credentials: &defaultCredentials,
 		Email:       &auth.Email{Email: defaultCredentials.Email},
 		HasInbox:    true,
-		BodyType:    apiv1.Message{},
-		Response: techo.Response{
+		Response: Response{
 			Code: http.StatusOK,
-			Body: marshal(msgPwResetEmailSent),
+			Type: &v1.Message{},
+			Body: &messagePwresetSent,
 		},
 	},
 	{
@@ -269,10 +288,10 @@ var ResetPasswordSet = []ResetPassword{
 		Credentials: &defaultCredentials,
 		Email:       &auth.Email{Email: "invalid@mail.com"},
 		HasInbox:    false,
-		BodyType:    apiv1.Message{},
-		Response: techo.Response{
+		Response: Response{
 			Code: http.StatusOK,
-			Body: marshal(msgPwResetEmailSent),
+			Type: &v1.Message{},
+			Body: &messagePwresetSent,
 		},
 	},
 	{
@@ -280,13 +299,13 @@ var ResetPasswordSet = []ResetPassword{
 		Credentials: &defaultCredentials,
 		Email:       &auth.Email{Email: "invalidmail.com"},
 		HasInbox:    false,
-		BodyType:    apiv1.Message{},
-		Response: techo.Response{
+		Response: Response{
 			Code: http.StatusBadRequest,
-			Body: marshal(api.Error{
+			Type: &api.Error{Errors: &[]validationError{}},
+			Body: &api.Error{
 				Message: "validation errors",
-				Errors:  jsonerr.Errors([]error{errInvalidEmail}),
-			}),
+				Errors:  &[]validationError{errorEmailInvalid},
+			},
 		},
 	},
 	{
@@ -294,13 +313,13 @@ var ResetPasswordSet = []ResetPassword{
 		Credentials: &defaultCredentials,
 		Email:       nil,
 		HasInbox:    false,
-		BodyType:    apiv1.Message{},
-		Response: techo.Response{
+		Response: Response{
 			Code: http.StatusBadRequest,
-			Body: marshal(api.Error{
+			Type: &api.Error{Errors: &[]validationError{}},
+			Body: &api.Error{
 				Message: "validation errors",
-				Errors:  jsonerr.Errors([]error{errInvalidEmail}),
-			}),
+				Errors:  &[]validationError{errorEmailInvalid},
+			},
 		},
 	},
 }
@@ -309,9 +328,8 @@ type UpdatePassword struct {
 	Name        string
 	Credentials *auth.Credentials
 	Password    *auth.Password
-	BodyType    interface{}
-	Response    techo.Response
-	ReadID      func(*suite.Suite, string, auth.ConfirmationConfig) string
+	Response    Response
+	ReadID      func(string, *suite.Suite, auth.ConfirmConfig) string
 }
 
 var UpdatePasswordSet = []UpdatePassword{
@@ -319,47 +337,80 @@ var UpdatePasswordSet = []UpdatePassword{
 		Name:        "Ok",
 		Credentials: &defaultCredentials,
 		Password:    &auth.Password{Password: "654321"},
-		ReadID:      suite.ReadValidConfirmationID,
-		BodyType:    apiv1.Message{},
-		Response: techo.Response{
+		ReadID:      readValidCID,
+		Response: Response{
 			Code: http.StatusOK,
-			Body: marshal(msgPasswordUpdated),
+			Type: &v1.Message{},
+			Body: &messagePasswordUpdated,
 		},
 	},
 	{
 		Name:        "NotFound",
 		Credentials: &defaultCredentials,
 		Password:    &auth.Password{Password: "654321"},
-		ReadID:      suite.ReadInvalidConfirmationID,
-		BodyType:    api.Error{},
-		Response: techo.Response{
+		ReadID:      readInvalidCID,
+		Response: Response{
 			Code: http.StatusNotFound,
-			Body: marshal(errConfirmationNotFound),
+			Type: &api.Error{},
+			Body: &errorConfirmationNotFound,
 		},
 	},
 	{
 		Name:        "Expired",
 		Credentials: &defaultCredentials,
 		Password:    &auth.Password{Password: "654321"},
-		ReadID:      suite.ReadExpiredConfirmationID,
-		BodyType:    api.Error{},
-		Response: techo.Response{
+		ReadID:      readExpiredCID,
+		Response: Response{
 			Code: http.StatusRequestTimeout,
-			Body: marshal(errConfirmationExpired),
+			Type: &api.Error{},
+			Body: &errorConfirmationExpired,
 		},
 	},
 	{
 		Name:        "PasswordShort",
 		Credentials: &defaultCredentials,
 		Password:    &auth.Password{Password: "65432"},
-		ReadID:      suite.ReadValidConfirmationID,
-		BodyType:    api.Error{},
-		Response: techo.Response{
+		ReadID:      readValidCID,
+		Response: Response{
 			Code: http.StatusBadRequest,
-			Body: marshal(api.Error{
+			Type: &api.Error{Errors: &[]validationError{}},
+			Body: &api.Error{
 				Message: "validation errors",
-				Errors:  jsonerr.Errors([]error{errPasswordShort}),
-			}),
+				Errors:  &[]validationError{errorPasswordShort},
+			},
+		},
+	},
+}
+
+type Refresh struct {
+	Name        string
+	Credentials *auth.Credentials
+	Delay       time.Duration
+	Response    Response
+}
+
+var RefreshSet = []Refresh{
+	{
+		Name:        "Ok",
+		Credentials: &defaultCredentials,
+	},
+	{
+		Name:        "Invalid",
+		Credentials: &defaultCredentials,
+		Response: Response{
+			Code: http.StatusNotFound,
+			Type: &api.Error{Errors: &[]validationError{}},
+			Body: &errorRefreshNotFound,
+		},
+	},
+	{
+		Name:        "Expired",
+		Credentials: &defaultCredentials,
+		Delay:       suite.Config.Token.RefreshTTL,
+		Response: Response{
+			Code: http.StatusRequestTimeout,
+			Type: &api.Error{Errors: &[]validationError{}},
+			Body: &errorRefreshExpired,
 		},
 	},
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/jinzhu/gorm"
 	"github.com/labstack/gommon/random"
 	"github.com/robbert229/jwt"
-	"github.com/vbogretsov/go-mailcd"
+	mail "github.com/vbogretsov/go-mail"
 	"github.com/vbogretsov/go-validation"
 	"github.com/vbogretsov/go-validation/rule"
 
@@ -22,12 +22,20 @@ const idsize = 32
 
 type userfn func(*model.User) error
 
-func attremail(v interface{}) interface{} {
-	return &v.(*Credentials).Email
+func attrUserEmail(v interface{}) interface{} {
+	return &v.(*model.User).Email
 }
 
-func attrpassword(v interface{}) interface{} {
-	return &v.(*Credentials).Password
+func attrUserPassword(v interface{}) interface{} {
+	return &v.(*model.User).Password
+}
+
+func attrEmail(v interface{}) interface{} {
+	return &v.(*Email).Email
+}
+
+func attrPassword(v interface{}) interface{} {
+	return &v.(*Password).Password
 }
 
 type rules struct {
@@ -37,17 +45,39 @@ type rules struct {
 }
 
 func newrules(db *gorm.DB, conf Config) (*rules, error) {
-	er := rule.StrEmail("email-invalid")
-	pr := rule.StrMinLen(conf.Password.MinLen, "password-short")
+	emailRule := rule.StrEmail("email-invalid")
+	passwordRule := rule.StrMinLen(conf.Password.MinLen, "password-short")
 
 	ur, err := validation.Struct(&model.User{}, "json", []validation.Field{
 		{
-			Attr:  attremail,
-			Rules: []validation.Rule{er, emailUniq(db, "email-uniq")},
+			Attr:  attrUserEmail,
+			Rules: []validation.Rule{emailRule, emailUniq(db, "email-uniq")},
 		},
 		{
-			Attr:  attrpassword,
-			Rules: []validation.Rule{pr},
+			Attr:  attrUserPassword,
+			Rules: []validation.Rule{passwordRule},
+		},
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	er, err := validation.Struct(&Email{}, "json", []validation.Field{
+		{
+			Attr:  attrEmail,
+			Rules: []validation.Rule{emailRule},
+		},
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	pr, err := validation.Struct(&Password{}, "json", []validation.Field{
+		{
+			Attr:  attrPassword,
+			Rules: []validation.Rule{passwordRule},
 		},
 	})
 
@@ -67,11 +97,11 @@ type Auth struct {
 	cfg    Config
 	rules  *rules
 	now    Timer
-	sender mailcd.Sender
+	sender mail.Sender
 }
 
 // New creates new application controller.
-func New(cfg Config, db *gorm.DB, now Timer, sender mailcd.Sender) (*Auth, error) {
+func New(cfg Config, db *gorm.DB, now Timer, sender mail.Sender) (*Auth, error) {
 	rules, err := newrules(db, cfg)
 	if err != nil {
 		return nil, err
@@ -92,16 +122,16 @@ func New(cfg Config, db *gorm.DB, now Timer, sender mailcd.Sender) (*Auth, error
 // The confirmation email will be sent to user email.
 func (auth *Auth) SignUp(creds *Credentials) error {
 	return atomic(auth.db, func(tx *gorm.DB) error {
-		if err := auth.rules.user(creds); err != nil {
-			return err
-		}
-
 		user := model.User{
 			ID:       random.String(idsize),
 			Email:    creds.Email,
 			Password: creds.Password,
 			Created:  auth.now(),
 			Active:   false,
+		}
+
+		if err := auth.rules.user(&user); err != nil {
+			return ArgumentError{Source: err}
 		}
 
 		if err := hashpw(&user, auth.cfg.Password.HashCost); err != nil {
@@ -132,7 +162,7 @@ func (auth *Auth) ConfirmUser(cid string) error {
 // If email was sent or no user with the email provided was found returns nil.
 func (auth *Auth) ResetPassword(email *Email) error {
 	if err := auth.rules.email(email); err != nil {
-		return err
+		return ArgumentError{Source: err}
 	}
 
 	return atomic(auth.db, func(tx *gorm.DB) error {
@@ -152,11 +182,12 @@ func (auth *Auth) ResetPassword(email *Email) error {
 // UpdatePassword updates user password.
 func (auth *Auth) UpdatePassword(cid string, password *Password) error {
 	if err := auth.rules.password(password); err != nil {
-		return err
+		return ArgumentError{Source: err}
 	}
 
 	return atomic(auth.db, func(tx *gorm.DB) error {
 		update := func(user *model.User) error {
+			user.Password = password.Password
 			return hashpw(user, auth.cfg.Password.HashCost)
 		}
 		return auth.confirm(tx, cid, auth.cfg.ResetPw, update)
@@ -258,7 +289,7 @@ func (auth *Auth) grant(tx *gorm.DB, user *model.User) (*Token, error) {
 	return &token, nil
 }
 
-func (auth *Auth) confirmate(tx *gorm.DB, user *model.User, conf ConfirmationConfig) error {
+func (auth *Auth) confirmate(tx *gorm.DB, user *model.User, conf ConfirmConfig) error {
 
 	now := auth.now()
 	con := model.Confirmation{
@@ -273,17 +304,17 @@ func (auth *Auth) confirmate(tx *gorm.DB, user *model.User, conf ConfirmationCon
 		return err
 	}
 
-	msg := mailcd.Request{
+	msg := mail.Request{
 		TemplateLang: "en",
 		TemplateName: conf.Template,
 		TemplateArgs: map[string]interface{}{"link": conf.Link, "id": con.ID},
-		To:           []mailcd.Address{{Email: user.Email}},
+		To:           []mail.Address{{Email: user.Email}},
 	}
 
 	return auth.sender.Send(msg)
 }
 
-func (auth *Auth) confirm(tx *gorm.DB, id string, conf ConfirmationConfig, fun userfn) error {
+func (auth *Auth) confirm(tx *gorm.DB, id string, conf ConfirmConfig, fun userfn) error {
 	con := model.Confirmation{ID: id}
 
 	res := tx.Preload("User").First(&con)
@@ -334,11 +365,11 @@ func emailUniq(db *gorm.DB, msg string) validation.Rule {
 
 		user, err := findUser(db, *email)
 		if err != nil {
-			return validation.Panic{Err: err.Error()}
+			return validation.Panic{Err: err}
 		}
 
 		if user != nil {
-			return errors.New("email-inuse")
+			return errors.New(msg)
 		}
 
 		return nil

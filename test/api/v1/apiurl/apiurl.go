@@ -28,3 +28,7 @@ func UpdatePassword(id string) string {
 	url := fmt.Sprintf("%s%s", apiv1.Conf.Group, apiv1.Conf.UpdatePasswordURL)
 	return strings.Replace(url, ":id", id, 1)
 }
+
+func Refresh() string {
+	return fmt.Sprintf("%s%s", apiv1.Conf.Group, apiv1.Conf.RefreshURL)
+}

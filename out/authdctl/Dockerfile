@@ -1,10 +1,8 @@
-FROM alpine:3.7
-
-ENV DBURL=
+FROM alpine:3.8
 
 ADD ./authdctl /bin/authdctl
 
-RUN adduser -D authdctl
+RUN adduser -D -s /sbin/nologin authdctl
 
 USER authdctl
 

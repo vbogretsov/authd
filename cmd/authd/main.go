@@ -11,7 +11,6 @@ import (
 	"github.com/jinzhu/gorm"
 	"github.com/labstack/gommon/log"
 	"github.com/streadway/amqp"
-	"github.com/vbogretsov/go-mailcd"
 
 	_ "github.com/jinzhu/gorm/dialects/mssql"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
@@ -20,7 +19,7 @@ import (
 
 	api "github.com/vbogretsov/authd/api"
 	apiv1 "github.com/vbogretsov/authd/api/v1"
-	app "github.com/vbogretsov/authd/app"
+	"github.com/vbogretsov/authd/auth"
 )
 
 // Version indicates application version, should be set during the build via -X.
@@ -124,15 +123,15 @@ func run() error {
 		return err
 	}
 
-	sender, err := mailcd.New(mq, "maild")
+	sender, err := mail.NewSender(mq, "maild")
 	if err != nil {
 		return err
 	}
 
 	// TODO: pass parameters from args
-	cf := app.Config{}
+	cf := auth.DefaultConfig
 
-	ap, err := app.New(cf, time.Now, db, sender)
+	ap, err := auth.New(cf, db, time.Now, sender)
 	if err != nil {
 		return err
 	}

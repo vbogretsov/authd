@@ -10,11 +10,12 @@ vars:
   CTL: authdctl
   EXE: authd
   BIN_CTL: "{{.DIR_OUR}}/{{.CTL}}/{{.CTL}}"
+  IMG_CTL: "{{.IMGREP}}/{{.CTL}}:{{.VERSION}}"
   BIN_EXE: "{{.DIR_OUR}}/{{.EXE}}/{{.EXE}}"
-  TEST_DBNAME: authd
-  TEST_DBUSER: authd
-  TEST_DBPASSWORD: authd
-  TEST_DBHOST: {sh: echo $TEST_DBHOST}
+  IMG_EXE: "{{.IMGREP}}/{{.EXE}}:{{.VERSION}}"
+  AUTHD_DBNAME: authd
+  AUTHD_DBUSER: authd
+  AUTHD_DBPASSWORD: authd
 
 tasks:
   ctlbin:
@@ -43,13 +44,20 @@ tasks:
     desc: build docker image for control programm
     deps: [ctlbin]
     cmds:
-    - docker build -t {{.IMGREP}}/{{.CTL}}:{{.VERSION}} "{{.DIR_OUR}}/{{.CTL}}"
+    - docker build -t {{.IMG_CTL}} "{{.DIR_OUR}}/{{.CTL}}"
     status:
-    - docker images {{.IMGREP}}/{{.EXE}}:{{.VERSION}} -q
+    - docker images | grep {{.IMG_CTL}}
 
   clean:
     desc: clean all files
+    env:
+      AUTHD_VERSION: "{{.VERSION}}"
+      AUTHD_DBNAME: "{{.AUTHD_DBNAME}}"
+      AUTHD_DBUSER: "{{.AUTHD_DBUSER}}"
+      AUTHD_DBPASSWORD: "{{.AUTHD_DBPASSWORD}}"
     cmds:
+      - docker-compose down
+      - docker rmi {{.IMGREP}}/{{.CTL}}:{{.VERSION}}
       - env GOOS={{.GOOS}} GOARCH={{.GOARCH}} go clean
       - rm -f {{.BIN_CTL}}
       - rm -f {{.BIN_EXE}}
@@ -59,9 +67,9 @@ tasks:
     deps: [ctlimg]
     env:
       AUTHD_VERSION: "{{.VERSION}}"
-      AUTHD_DBNAME: "{{.TEST_DBNAME}}"
-      AUTHD_DBUSER: "{{.TEST_DBUSER}}"
-      AUTHD_DBPASSWORD: "{{.TEST_DBPASSWORD}}"
+      AUTHD_DBNAME: "{{.AUTHD_DBNAME}}"
+      AUTHD_DBUSER: "{{.AUTHD_DBUSER}}"
+      AUTHD_DBPASSWORD: "{{.AUTHD_DBPASSWORD}}"
     cmds:
     - docker-compose up -d
     - while  [ `docker inspect -f '{{ "{{" }} .State.Status {{ "}}" }}' authdctl` != "exited" ]; do sleep 1; done
@@ -72,9 +80,9 @@ tasks:
     desc: down test environment stack
     env:
       AUTHD_VERSION: "{{.VERSION}}"
-      AUTHD_DBNAME: "{{.TEST_DBNAME}}"
-      AUTHD_DBUSER: "{{.TEST_DBUSER}}"
-      AUTHD_DBPASSWORD: "{{.TEST_DBPASSWORD}}"
+      AUTHD_DBNAME: "{{.AUTHD_DBNAME}}"
+      AUTHD_DBUSER: "{{.AUTHD_DBUSER}}"
+      AUTHD_DBPASSWORD: "{{.AUTHD_DBPASSWORD}}"
     cmds:
     - docker-compose down
 
@@ -82,4 +90,4 @@ tasks:
     desc: run tests
     deps: [up]
     cmds:
-    - go test -v ./test/... -dbconn=postgres://authd:authd@{{.TEST_DBHOST}}/authd?sslmode=disable -run TestSignUp
+    - go test -v ./test/api/v1 -dbconn=postgres://authd:authd@localhost/authd?sslmode=disable
