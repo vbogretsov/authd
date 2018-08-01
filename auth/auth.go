@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"errors"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -10,8 +9,6 @@ import (
 	"github.com/labstack/gommon/random"
 	"github.com/robbert229/jwt"
 	mail "github.com/vbogretsov/go-mail"
-	"github.com/vbogretsov/go-validation"
-	"github.com/vbogretsov/go-validation/rule"
 
 	"github.com/vbogretsov/authd/model"
 )
@@ -22,72 +19,6 @@ const idsize = 32
 
 type userfn func(*model.User) error
 
-func attrUserEmail(v interface{}) interface{} {
-	return &v.(*model.User).Email
-}
-
-func attrUserPassword(v interface{}) interface{} {
-	return &v.(*model.User).Password
-}
-
-func attrEmail(v interface{}) interface{} {
-	return &v.(*Email).Email
-}
-
-func attrPassword(v interface{}) interface{} {
-	return &v.(*Password).Password
-}
-
-type rules struct {
-	user     validation.Rule
-	email    validation.Rule
-	password validation.Rule
-}
-
-func newrules(db *gorm.DB, conf Config) (*rules, error) {
-	emailRule := rule.StrEmail("email-invalid")
-	passwordRule := rule.StrMinLen(conf.Password.MinLen, "password-short")
-
-	ur, err := validation.Struct(&model.User{}, "json", []validation.Field{
-		{
-			Attr:  attrUserEmail,
-			Rules: []validation.Rule{emailRule, emailUniq(db, "email-uniq")},
-		},
-		{
-			Attr:  attrUserPassword,
-			Rules: []validation.Rule{passwordRule},
-		},
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	er, err := validation.Struct(&Email{}, "json", []validation.Field{
-		{
-			Attr:  attrEmail,
-			Rules: []validation.Rule{emailRule},
-		},
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	pr, err := validation.Struct(&Password{}, "json", []validation.Field{
-		{
-			Attr:  attrPassword,
-			Rules: []validation.Rule{passwordRule},
-		},
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &rules{email: er, password: pr, user: ur}, nil
-}
-
 // Timer represets current time provider.
 type Timer func() time.Time
 
@@ -95,27 +26,20 @@ type Timer func() time.Time
 type Auth struct {
 	db     *gorm.DB
 	cfg    Config
-	rules  *rules
 	now    Timer
+	rules  *rules
 	sender mail.Sender
 }
 
 // New creates new application controller.
-func New(cfg Config, db *gorm.DB, now Timer, sender mail.Sender) (*Auth, error) {
-	rules, err := newrules(db, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	instance := Auth{
+func New(cfg Config, db *gorm.DB, now Timer, sender mail.Sender) *Auth {
+	return &Auth{
 		db:     db,
 		cfg:    cfg,
-		rules:  rules,
 		now:    now,
+		rules:  newRules(cfg),
 		sender: sender,
 	}
-
-	return &instance, nil
 }
 
 // SignUp creates new user account if a user email is not in use.
@@ -130,7 +54,7 @@ func (auth *Auth) SignUp(creds *Credentials) error {
 			Active:   false,
 		}
 
-		if err := auth.rules.user(&user); err != nil {
+		if err := auth.rules.user(tx)(&user); err != nil {
 			return ArgumentError{Source: err}
 		}
 
@@ -259,7 +183,9 @@ func (auth *Auth) grant(tx *gorm.DB, user *model.User) (*Token, error) {
 	claims.Set("email", user.Email)
 	claims.Set("expires", expires.Unix())
 
-	access, err := auth.cfg.Token.Algorithm.Encode(claims)
+	algorithm := jwt.HmacSha512(auth.cfg.Token.SecretKey)
+
+	access, err := algorithm.Encode(claims)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +216,6 @@ func (auth *Auth) grant(tx *gorm.DB, user *model.User) (*Token, error) {
 }
 
 func (auth *Auth) confirmate(tx *gorm.DB, user *model.User, conf ConfirmConfig) error {
-
 	now := auth.now()
 	con := model.Confirmation{
 		ID:      random.String(idsize),
@@ -357,58 +282,4 @@ func hashpw(user *model.User, hashcost int) error {
 
 func checkpw(hash, clear string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(clear)) == nil
-}
-
-func emailUniq(db *gorm.DB, msg string) validation.Rule {
-	return func(v interface{}) error {
-		email := v.(*string)
-
-		user, err := findUser(db, *email)
-		if err != nil {
-			return validation.Panic{Err: err}
-		}
-
-		if user != nil {
-			return errors.New(msg)
-		}
-
-		return nil
-	}
-}
-
-func findUser(tx *gorm.DB, email string) (*model.User, error) {
-	user := model.User{Email: email}
-
-	res := tx.Where("email = ?", email).First(&user)
-	if res.RecordNotFound() {
-		return nil, nil
-	}
-
-	if res.Error != nil {
-		return nil, res.Error
-	}
-
-	return &user, nil
-}
-
-func atomic(db *gorm.DB, action func(*gorm.DB) error) error {
-	txn := db.Begin()
-
-	err := txn.Error
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		if err != nil {
-			txn.Rollback()
-		}
-	}()
-
-	err = action(txn)
-	if err != nil {
-		return err
-	}
-
-	return txn.Commit().Error
 }

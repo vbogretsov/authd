@@ -3,8 +3,14 @@ package v1_test
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net/http"
+	"sync"
 	"testing"
+
+	"github.com/robbert229/jwt"
+
+	"github.com/labstack/gommon/random"
 
 	"github.com/stretchr/testify/require"
 	mail "github.com/vbogretsov/go-mail"
@@ -17,7 +23,14 @@ import (
 	"github.com/vbogretsov/authd/test/api/v1/suite"
 )
 
-var dbconn = flag.String("dbconn", "", "database connection string")
+var (
+	dbconn = flag.String("dbconn", "", "database connection string")
+	ntests = flag.Int("ntests", 10, "number of goroutines for TestConcurrentAccess")
+)
+
+func maxconn() int {
+	return *ntests/2 + 1
+}
 
 func checkResponse(t *testing.T, exp fixture.Response, act techo.Response) {
 	require.Equal(t, exp.Code, act.Code, string(act.Body))
@@ -31,7 +44,7 @@ func checkResponse(t *testing.T, exp fixture.Response, act techo.Response) {
 
 func checkInbox(t *testing.T, email string, s *suite.Suite, c auth.ConfirmConfig) {
 	act, ok := s.Sender.ReadMail(email)
-	require.True(t, ok)
+	require.True(t, ok, "inbox %s empty", email)
 
 	require.Contains(t, act.TemplateArgs, "id")
 
@@ -56,7 +69,9 @@ func checkToken(t *testing.T, email string, data []byte, s *suite.Suite) {
 	expiresAct := token.Expires
 	require.Equal(t, expiresExp, expiresAct)
 
-	claims, err := s.Config.Token.Algorithm.Decode(token.Access)
+	algorithm := jwt.HmacSha512(s.Config.Token.SecretKey)
+
+	claims, err := algorithm.Decode(token.Access)
 	require.NoError(t, err)
 
 	userID, err := claims.Get("id")
@@ -70,7 +85,7 @@ func checkToken(t *testing.T, email string, data []byte, s *suite.Suite) {
 
 func TestSignUp(t *testing.T) {
 	for _, fx := range fixture.SignUpSet {
-		s := suite.New(t, *dbconn)
+		s := suite.New(t, *dbconn, maxconn())
 
 		t.Run(fx.Name, func(t *testing.T) {
 			resp := s.Client.Post(apiurl.SignUp(), nil, fx.Credentials)
@@ -87,7 +102,7 @@ func TestSignUp(t *testing.T) {
 
 func TestConfirmUser(t *testing.T) {
 	for _, fx := range fixture.ConfirmUserSet {
-		s := suite.New(t, *dbconn)
+		s := suite.New(t, *dbconn, maxconn())
 
 		t.Run(fx.Name, func(t *testing.T) {
 			s.SignUp(t, *fx.Credentials)
@@ -112,7 +127,7 @@ func TestConfirmUser(t *testing.T) {
 
 func TestSignIn(t *testing.T) {
 	for _, fx := range fixture.SignInSet {
-		s := suite.New(t, *dbconn)
+		s := suite.New(t, *dbconn, maxconn())
 		t.Run(fx.Name, func(t *testing.T) {
 			if fx.CreateUser {
 				s.SignUp(t, *fx.Credentials)
@@ -135,7 +150,7 @@ func TestSignIn(t *testing.T) {
 
 func TestResetPassword(t *testing.T) {
 	for _, fx := range fixture.ResetPasswordSet {
-		s := suite.New(t, *dbconn)
+		s := suite.New(t, *dbconn, maxconn())
 		t.Run(fx.Name, func(t *testing.T) {
 			s.SignUp(t, *fx.Credentials)
 			s.ConfirmUser(t, fx.Credentials.Email)
@@ -156,7 +171,7 @@ func TestResetPassword(t *testing.T) {
 
 func TestUpdatePassword(t *testing.T) {
 	for _, fx := range fixture.UpdatePasswordSet {
-		s := suite.New(t, *dbconn)
+		s := suite.New(t, *dbconn, maxconn())
 
 		t.Run(fx.Name, func(t *testing.T) {
 			s.SignUp(t, *fx.Credentials)
@@ -186,7 +201,7 @@ func TestUpdatePassword(t *testing.T) {
 
 func TestRefresh(t *testing.T) {
 	for _, fx := range fixture.RefreshSet {
-		s := suite.New(t, *dbconn)
+		s := suite.New(t, *dbconn, maxconn())
 
 		t.Run(fx.Name, func(t *testing.T) {
 			s.SignUp(t, *fx.Credentials)
@@ -206,4 +221,35 @@ func TestRefresh(t *testing.T) {
 
 		s.Cleanup(t)
 	}
+}
+
+func TestConcurrentAccess(t *testing.T) {
+	wg := sync.WaitGroup{}
+	wg.Add(*ntests)
+
+	s := suite.New(t, *dbconn, maxconn())
+
+	for i := 0; i < *ntests; i++ {
+		go func() {
+			t.Run("Concurrent", func(t *testing.T) {
+				defer wg.Done()
+				email := fmt.Sprintf(
+					"%s@mail.com",
+					random.String(10, random.Alphabetic))
+
+				creds := auth.Credentials{
+					Email:    email,
+					Password: random.String(10, random.Alphabetic),
+				}
+
+				s.SignUp(t, creds)
+				s.ConfirmUser(t, creds.Email)
+				s.SignIn(t, creds)
+			})
+		}()
+	}
+
+	s.Cleanup(t)
+
+	wg.Wait()
 }

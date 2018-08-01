@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/robbert229/jwt"
-
 	"github.com/jinzhu/gorm"
 	"github.com/labstack/echo/middleware"
 	"github.com/steakknife/devnull"
@@ -39,9 +37,9 @@ var Config = auth.Config{
 		MinLen: 6,
 	},
 	Token: auth.TokenConfig{
-		Algorithm:  jwt.HmacSha256("test-secret-key"),
 		AccessTTL:  time.Duration(time.Second * 10),
 		RefreshTTL: time.Duration(time.Second * 100),
+		SecretKey:  "test-secret-key",
 	},
 	SignUp: auth.ConfirmConfig{
 		TTL:      time.Duration(time.Second * 200),
@@ -63,7 +61,7 @@ type Suite struct {
 	Client *techo.Client
 }
 
-func New(t *testing.T, dbconn string) *Suite {
+func New(t *testing.T, dbconn string, macconn int) *Suite {
 	var err error
 
 	s := new(Suite)
@@ -71,12 +69,13 @@ func New(t *testing.T, dbconn string) *Suite {
 	s.DB, err = gorm.Open("postgres", dbconn)
 	require.Nil(t, err)
 
+	s.DB.DB().SetMaxOpenConns(10)
+
 	s.Timer = mocktime.New()
 	s.Sender = mailmock.New()
 	s.Config = Config
 
-	ap, err := auth.New(s.Config, s.DB, utc(s.Timer), s.Sender)
-	require.Nil(t, err)
+	ap := auth.New(s.Config, s.DB, utc(s.Timer), s.Sender)
 
 	middleware.DefaultLoggerConfig.Output = devnull.Writer
 

@@ -3,8 +3,6 @@ package auth
 import (
 	"time"
 
-	"github.com/robbert229/jwt"
-
 	"gopkg.in/hlandau/passlib.v1/hash/bcrypt"
 )
 
@@ -20,7 +18,7 @@ type Config struct {
 type TokenConfig struct {
 	AccessTTL  time.Duration
 	RefreshTTL time.Duration
-	Algorithm  jwt.Algorithm
+	SecretKey  string
 }
 
 // PasswordConfig contains information required to validate, hash and verify
